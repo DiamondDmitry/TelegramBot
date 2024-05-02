@@ -375,6 +375,10 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+/Tele.Bot/weatherbotdatabase.db
+/Tele.Bot/weatherbotdatabase.db-shm
+/Tele.Bot/weatherbotdatabase.db-wal
+
 
 # VS Code files for those working on multiple tools
 .vscode/*
