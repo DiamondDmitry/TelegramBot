@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using Tele.Bot.Models;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Polling;
@@ -66,7 +69,7 @@ public class TelegramService : ITelegramService
                     chatId: update.Message.Chat.Id,
                     photo: testIconUrl,
                     caption: $"<b>Weather in the current location</b>\n" +
-                             $"Nearest city: <a href =\"https://www.google.com/search?q={locationCity.Name}\">{locationCity.Name}</a>, <b>{locationCity.Country}</b>, " +
+                             $"<a href =\"https://www.google.com/search?q={locationCity.Name}\">{locationCity.Name}</a>, <b>{locationCity.Country}</b>, " +
                              $"<b>{locationOffsetTime.ToString("t")}</b>\n" +
                              $"Temperature: <b>{locationWeather.Current.Temp}</b>°C\n" +
                              $"Feels like: <b>{locationWeather.Current.FeelsLike}</b>°C\n" +
@@ -85,56 +88,13 @@ public class TelegramService : ITelegramService
 
         var userId = update.Message.Chat.Id;
         var chatId = message.Chat.Id;
+
         Console.ForegroundColor = ConsoleColor.Yellow;
         Console.WriteLine($"{DateTime.Now}: Received a '{messageText}' message in chat {userId}.");
         Console.ResetColor();
 
 
         // Working with commands
-        // test command
-        if (messageText.StartsWith("/test"))
-        {
-            var testCity = messageText.Substring(5);
-            var testCoordinates = await _weatherService.GetCoordinatesByCityName(testCity);
-
-            if (testCoordinates == null)
-            {
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: $"City {messageText} is not found",
-                    cancellationToken: cancellationToken);
-                return;
-            }
-
-            var testWeather = await _weatherService.GetWeatherByCoordinates(testCoordinates.Lat, testCoordinates.Lon);
-            var flagIconUrl = InputFile.FromUri($"https://flagsapi.com/{testCoordinates.Country}/shiny/64.png");
-            var testWindDirection = _weatherService.GetWindDirection(testWeather.Current.WindDeg);
-            var testOffsetTime = _weatherService.GetOffsetTime(testWeather.TimezoneOffset);
-
-            await botClient.SendPhotoAsync(
-                    chatId: chatId,
-                    photo: flagIconUrl,
-                    caption: $"City: <a href =\"https://www.google.com/search?q={testCoordinates.Name}\">{testCoordinates.Name}</a>, <b>{testCoordinates.Country}</b>, " +
-                             $"<b>{testOffsetTime.ToString("t")}</b>\n",
-                    parseMode: ParseMode.Html,
-                    cancellationToken: cancellationToken);
-
-            var testIconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{testWeather.Current.Weather[0].Icon}@2x.png");
-            await botClient.SendPhotoAsync(
-                    chatId: chatId,
-                    photo: testIconUrl,
-                    caption: $"Temperature: <b>{testWeather.Current.Temp}</b>°C\n" +
-                             $"Feels like: <b>{testWeather.Current.FeelsLike}</b>°C\n" +
-                             $"UV index: <b>{testWeather.Current.Uvi}</b>\n" +
-                             $"Cloudy: <b>{testWeather.Current.Clouds}</b>%, {testWeather.Current.Weather[0].Description}\n" +
-                             $"Humidity: <b>{testWeather.Current.Humidity}</b>%\n" +
-                             $"Wind : <b>{Math.Round(testWeather.Current.WindSpeed, 1)}</b> m/s, <b>{testWindDirection}</b>",
-                    parseMode: ParseMode.Html,
-                    cancellationToken: cancellationToken);
-            return;
-        }
-
-
         // Start command
         if (messageText.StartsWith("/start"))
         {
@@ -165,6 +125,7 @@ public class TelegramService : ITelegramService
         {
             // Get all saved cities from the database by user ID
             var listOfCities = await _weatherService.GetListOfCities(userId);
+
             if (listOfCities.Count < 1)
             {
                 await botClient.SendTextMessageAsync(
@@ -178,32 +139,70 @@ public class TelegramService : ITelegramService
             // Show weather for each saved city
             foreach (var city in listOfCities)
             {
-                var savedCityWeather = await _weatherService.GetWeatherByCoordinates(city.Lat, city.Lon);
-                var savedCityIconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{savedCityWeather.Current.Weather[0].Icon}@2x.png");
-                var savedCitywindDirection = _weatherService.GetWindDirection(savedCityWeather.Current.WindDeg);
-                var savedCityoffsetTime = _weatherService.GetOffsetTime(savedCityWeather.TimezoneOffset);
+                var weather = await _weatherService.GetWeatherByCoordinates(city.Lat, city.Lon);
+                var iconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{weather.Current.Weather[0].Icon}@2x.png");
+                var windDirection = _weatherService.GetWindDirection(weather.Current.WindDeg);
+                var offsetTime = _weatherService.GetOffsetTime(weather.TimezoneOffset);
 
                 await botClient.SendPhotoAsync(
                     chatId: chatId,
-                    photo: savedCityIconUrl,
+                    photo: iconUrl,
                     caption: $"City: <a href =\"https://www.google.com/search?q={city.Name}\">{city.Name}</a>, <b>{city.Country}</b>, " +
-                                $"<b>{savedCityoffsetTime.ToString("t")}</b>\n" +
-                                $"Temperature: <b>{savedCityWeather.Current.Temp}</b>°C\n" +
-                                $"Feels like: <b>{savedCityWeather.Current.FeelsLike}</b>°C\n" +
-                                $"UV index: <b>{savedCityWeather.Current.Uvi}</b>\n" +
-                                $"Cloudy: <b>{savedCityWeather.Current.Clouds}</b>%, {savedCityWeather.Current.Weather[0].Description}\n" +
-                                $"Humidity: <b>{savedCityWeather.Current.Humidity}</b>%\n" +
-                                $"Wind : <b>{Math.Round(savedCityWeather.Current.WindSpeed, 1)}</b> m/s, <b>{savedCitywindDirection}</b>",
+                                $"<b>{offsetTime.ToString("t")}</b>\n" +
+                                $"Temperature: <b>{weather.Current.Temp}</b>°C\n" +
+                                $"Feels like: <b>{weather.Current.FeelsLike}</b>°C\n" +
+                                $"UV index: <b>{weather.Current.Uvi}</b>\n" +
+                                $"Cloudy: <b>{weather.Current.Clouds}</b>%, {weather.Current.Weather[0].Description}\n" +
+                                $"Humidity: <b>{weather.Current.Humidity}</b>%\n" +
+                                $"Wind : <b>{Math.Round(weather.Current.WindSpeed, 1)}</b> m/s, <b>{windDirection}</b>",
                     parseMode: ParseMode.Html,
                     cancellationToken: cancellationToken);
             }
             return;
         }
 
+        if (messageText.StartsWith("/daily"))
+        {
+            var city = messageText.Substring(6).Replace("_", " ");
+            //var city = cityWithoutSpaces.Replace("_", " ");
+
+            if (string.IsNullOrEmpty(city))
+            {
+                await botClient.SendTextMessageAsync(
+                        chatId: chatId,
+                        text: "To get daily weather use the command: <b>/daily</b> <i>city</i>",
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                return;
+            }
+
+            var coordinate = await _weatherService.GetCoordinatesByCityName(city);
+            var weather = await _weatherService.GetWeatherByCoordinates(coordinate.Lat, coordinate.Lon);
+            var windDirection = _weatherService.GetWindDirection(weather.Current.WindDeg);
+            var iconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{weather.Current.Weather[0].Icon}@2x.png");
+            var offsetTime = _weatherService.GetOffsetTime(weather.TimezoneOffset);
+
+            await botClient.SendPhotoAsync(
+                    chatId: chatId,
+                    photo: iconUrl,
+                    caption: $"City: <a href =\"https://www.google.com/search?q={coordinate.Name}\">{coordinate.Name}</a>, <b>{coordinate.Country}</b>, " +
+                                $"<b>{offsetTime.ToString("t")}</b>\n" +
+                                $"Temperature: <b>{weather.Current.Temp}</b>°C\n" +
+                                $"Feels like: <b>{weather.Current.FeelsLike}</b>°C\n" +
+                                $"UV index: <b>{weather.Current.Uvi}</b>\n" +
+                                $"Cloudy: <b>{weather.Current.Clouds}</b>%, {weather.Current.Weather[0].Description}\n" +
+                                $"Humidity: <b>{weather.Current.Humidity}</b>%\n" +
+                                $"Wind : <b>{Math.Round(weather.Current.WindSpeed, 1)}</b> m/s, <b>{windDirection}</b>",
+                    parseMode: ParseMode.Html,
+                    cancellationToken: cancellationToken);
+
+            return;
+        }
         if (messageText.StartsWith("/addcity"))
         {
             // check the number of saved cities
             var cities = await _weatherService.GetListOfCities(userId);
+
             if (cities.Count > 4)
             { 
                 await botClient.SendTextMessageAsync(
@@ -215,7 +214,8 @@ public class TelegramService : ITelegramService
             }
 
             // add city to the list of saved cities
-            var city = messageText.Substring(9);
+            var city = messageText.Substring(8);
+
             if (string.IsNullOrEmpty(city))
             {
                 await botClient.SendTextMessageAsync(
@@ -228,6 +228,7 @@ public class TelegramService : ITelegramService
             else
             {
                 var cityWithCoordinates = await _weatherService.GetCoordinatesByCityName(city);
+
                 if (cityWithCoordinates == null)
                 {
                     await botClient.SendTextMessageAsync(
@@ -280,10 +281,8 @@ public class TelegramService : ITelegramService
             var text = "";
             foreach (var city in listOfCities)
             {
-                var savedCityWeather = await _weatherService.GetWeatherByCoordinates(city.Lat, city.Lon);
-                var savedCitywindDirection = _weatherService.GetWindDirection(savedCityWeather.Current.WindDeg);
-                var savedCityoffsetTime = _weatherService.GetOffsetTime(savedCityWeather.TimezoneOffset);
                 string cityWithoutSpaces = city.Name.Replace(" ", "_");
+
                 text += $"/delete_{cityWithoutSpaces}\n";
             }
             text += "/clearlist - clear the list of saved cities";
@@ -311,34 +310,48 @@ public class TelegramService : ITelegramService
         // Delete city from the saved list
         if (messageText.StartsWith("/delete"))
         {
-            var cityWithoutSpaces = messageText.Substring(8);
+            var cityWithoutSpaces = messageText.Substring(7);
             var city = cityWithoutSpaces.Replace("_", " ");
             var cityToDeleteFromDb = await _weatherService.GetListOfCities(userId);
-            if (cityToDeleteFromDb.Any(x => x.Name == city))
+
+            if (string.IsNullOrEmpty(city))
             {
-                await _weatherDbService.DeleteCityFromDb(city, userId);
                 await botClient.SendTextMessageAsync(
                         chatId: chatId,
-                        text: $"City <b>{city}</b> has been deleted",
+                        text: "To delete a city from list use the command: <b>/delete</b> <i>city</i>",
                         parseMode: ParseMode.Html,
                         cancellationToken: cancellationToken);
                 return;
             }
             else
             {
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: $"City <b>{city}</b> is not saved",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
+                city = city.Substring(1);
+                if (cityToDeleteFromDb.Any(x => x.Name == city))
+                {
+                    await _weatherDbService.DeleteCityFromDb(city, userId);
+                    await botClient.SendTextMessageAsync(
+                            chatId: chatId,
+                            text: $"City <b>{city}</b> has been deleted",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
+                else
+                {
+                    await botClient.SendTextMessageAsync(
+                            chatId: chatId,
+                            text: $"City <b>{city}</b> is not saved",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
             }
         }
 
         // Show weather by entered city name
-        var coordinates = await _weatherService.GetCoordinatesByCityName(messageText);
+        var cityCoordinates = await _weatherService.GetCoordinatesByCityName(messageText);
 
-        if (coordinates == null)
+        if (cityCoordinates == null)
         {
             await botClient.SendTextMessageAsync(
                 chatId: chatId,
@@ -347,23 +360,23 @@ public class TelegramService : ITelegramService
             return;
         }
 
-        var weather = await _weatherService.GetWeatherByCoordinates(coordinates.Lat, coordinates.Lon);
-        var iconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{weather.Current.Weather[0].Icon}@2x.png");
-        var windDirection = _weatherService.GetWindDirection(weather.Current.WindDeg);
-        var offsetTime = _weatherService.GetOffsetTime(weather.TimezoneOffset);
+        var cityWeather = await _weatherService.GetWeatherByCoordinates(cityCoordinates.Lat, cityCoordinates.Lon);
+        var cityIconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{cityWeather.Current.Weather[0].Icon}@2x.png");
+        var cityWindDirection = _weatherService.GetWindDirection(cityWeather.Current.WindDeg);
+        var cityOffsetTime = _weatherService.GetOffsetTime(cityWeather.TimezoneOffset);
 
         await botClient.SendPhotoAsync(
                 chatId: chatId,
-                photo: iconUrl,
+                photo: cityIconUrl,
                 replyToMessageId: update.Message.MessageId,
-                caption: $"City: <a href =\"https://www.google.com/search?q={coordinates.Name}\">{coordinates.Name}</a>, " +
-                         $"<b>{coordinates.Country}</b>, <b>{offsetTime.ToString("t")}</b>\n" +
-                         $"Temperature: <b>{weather.Current.Temp}</b>°C\n" +
-                         $"Feels like: <b>{weather.Current.FeelsLike}</b>°C\n" +
-                         $"UV index: <b>{weather.Current.Uvi}</b>\n" +
-                         $"Cloudy: <b>{weather.Current.Clouds}</b>%, {weather.Current.Weather[0].Description}\n" +
-                         $"Humidity: <b>{weather.Current.Humidity}</b>%\n" +
-                         $"Wind : <b>{Math.Round(weather.Current.WindSpeed, 1)}</b> m/s, <b>{windDirection}</b>",
+                caption: $"City: <a href =\"https://www.google.com/search?q={cityCoordinates.Name}\">{cityCoordinates.Name}</a>, " +
+                         $"<b>{cityCoordinates.Country}</b>, <b>{cityOffsetTime.ToString("t")}</b>\n" +
+                         $"Temperature: <b>{cityWeather.Current.Temp}</b>°C\n" +
+                         $"Feels like: <b>{cityWeather.Current.FeelsLike}</b>°C\n" +
+                         $"UV index: <b>{cityWeather.Current.Uvi}</b>\n" +
+                         $"Cloudy: <b>{cityWeather.Current.Clouds}</b>%, {cityWeather.Current.Weather[0].Description}\n" +
+                         $"Humidity: <b>{cityWeather.Current.Humidity}</b>%\n" +
+                         $"Wind : <b>{Math.Round(cityWeather.Current.WindSpeed, 1)}</b> m/s, <b>{cityWindDirection}</b>",
                 parseMode: ParseMode.Html,
                 cancellationToken: cancellationToken);
         return;

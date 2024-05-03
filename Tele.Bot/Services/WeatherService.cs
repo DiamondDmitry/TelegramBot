@@ -47,6 +47,24 @@ namespace Tele.Bot.Services
             return result;
         }
 
+        public async Task<Daily> GetDailyWeatherByCoordinates(double lat, double lon)
+        {
+            var result = await _restApiClient.SendGetRequest<Daily>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,hourly&appid={apiKey}");
+            //result.Current.Temp = Math.Round(result.Current.Temp, 1);
+            //result.Current.FeelsLike = Math.Round(result.Current.FeelsLike, 1);
+            //result.Current.Uvi = Math.Round(result.Current.Uvi, 1);
+            return result;
+        }
+
+        public async Task<Hourly> GetHourlyWeatherByCoordinates(double lat, double lon)
+        {
+            var result = await _restApiClient.SendGetRequest<Hourly>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,daily&appid={apiKey}");
+            //result.Current.Temp = Math.Round(result.Current.Temp, 1);
+            //result.Current.FeelsLike = Math.Round(result.Current.FeelsLike, 1);
+            //result.Current.Uvi = Math.Round(result.Current.Uvi, 1);
+            return result;
+        }
+
         public string GetWindDirection(int windDeg)
         {
             var directions = new string[] {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N"};
@@ -71,5 +89,6 @@ namespace Tele.Bot.Services
 
             return offsetTime;
         }
+
     }
 }
