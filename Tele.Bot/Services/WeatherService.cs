@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using Tele.Bot.Client;
 using Tele.Bot.Models;
+using Telegram.Bot.Types.ReplyMarkups;
+using Telegram.Bot;
 
 namespace Tele.Bot.Services
 {
@@ -47,21 +49,15 @@ namespace Tele.Bot.Services
             return result;
         }
 
-        public async Task<Daily> GetDailyWeatherByCoordinates(double lat, double lon)
+        public async Task<Root> GetDailyWeatherByCoordinates(double lat, double lon)
         {
-            var result = await _restApiClient.SendGetRequest<Daily>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,hourly&appid={apiKey}");
-            //result.Current.Temp = Math.Round(result.Current.Temp, 1);
-            //result.Current.FeelsLike = Math.Round(result.Current.FeelsLike, 1);
-            //result.Current.Uvi = Math.Round(result.Current.Uvi, 1);
+            var result = await _restApiClient.SendGetRequest<Root>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,hourly&appid={apiKey}");
             return result;
         }
 
-        public async Task<Hourly> GetHourlyWeatherByCoordinates(double lat, double lon)
+        public async Task<Root> GetHourlyWeatherByCoordinates(double lat, double lon)
         {
-            var result = await _restApiClient.SendGetRequest<Hourly>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,daily&appid={apiKey}");
-            //result.Current.Temp = Math.Round(result.Current.Temp, 1);
-            //result.Current.FeelsLike = Math.Round(result.Current.FeelsLike, 1);
-            //result.Current.Uvi = Math.Round(result.Current.Uvi, 1);
+            var result = await _restApiClient.SendGetRequest<Root>($"data/3.0/onecall?lat={lat}&lon={lon}&units=metric&exclude=minutely,daily&appid={apiKey}");
             return result;
         }
 
@@ -89,6 +85,5 @@ namespace Tele.Bot.Services
 
             return offsetTime;
         }
-
     }
 }

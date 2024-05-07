@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using Tele.Bot.Models;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -7,6 +8,7 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using static System.Net.Mime.MediaTypeNames;
 using InputFile = Telegram.Bot.Types.InputFile;
 
 namespace Tele.Bot.Services;
@@ -17,12 +19,13 @@ public class TelegramService : ITelegramService
     // private readonly interface _interface;
     private readonly IWeatherDbService _weatherDbService;
     private readonly IWeatherService _weatherService;
-    
+
     private readonly string? WeatherBotKey = Environment.GetEnvironmentVariable("TelegramWeatherBotKey");
     public TelegramService(IWeatherService weatherService, IWeatherDbService weatherDbService)
     {
         _weatherService = weatherService;
         _weatherDbService = weatherDbService;
+
     }
 
     public Task StartBot(CancellationTokenSource cts)
@@ -44,10 +47,150 @@ public class TelegramService : ITelegramService
 
         return Task.CompletedTask;
     }
-    
-    
+
     private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
     {
+        if (update.CallbackQuery != null)
+        {
+            var callbackData = update.CallbackQuery.Data;
+            var CallbackChatId = update.CallbackQuery.Message.Chat.Id;
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"{DateTime.Now}: Received a '{callbackData}' callback data in chat '{CallbackChatId}'.");
+            Console.ResetColor();
+
+            if (callbackData.StartsWith("/daily "))
+            {
+                var city = callbackData.Substring(7);
+                var сoordinates = await _weatherService.GetCoordinatesByCityName(city);
+                var dailyWeather = await _weatherService.GetDailyWeatherByCoordinates(сoordinates.Lat, сoordinates.Lon);
+
+                if (dailyWeather.Daily == null)
+                {
+                    await botClient.SendTextMessageAsync(
+                            chatId: CallbackChatId,
+                            text: $"No daily weather for <b>{city}</b>",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
+
+                var text = $"Daily weather for <b>{city}</b>\n";
+                foreach (var daily in dailyWeather.Daily.Skip(1).Take(5))
+                {
+                    var date = DateTimeOffset.FromUnixTimeSeconds(daily.Dt).Date;
+                    text += "-----------------------------------\n" +
+                            $"<b>{date.DayOfWeek}, {date.ToString("MMMM d")}</b>:\n" +
+                            $"<b>{daily.Weather[0].Description}</b> \n" +
+                            $"Day:<b>{Math.Round(daily.Temp.Day, 0)}°C</b>, Night: <b>{Math.Round(daily.Temp.Night, 0)}°C</b>\n" +
+                            $"Cloudy: <b>{daily.Clouds}</b>%, UV: <b>{daily.Uvi}</b>\n" +
+                            $"Wind : <b>{Math.Round(daily.WindSpeed, 1)}</b> m/s, <b>{_weatherService.GetWindDirection(daily.WindDeg)}</b>\n";
+                }
+                await botClient.SendTextMessageAsync(
+                        chatId: CallbackChatId,
+                        text: text,
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                return;
+            }
+
+            if (callbackData.StartsWith("/hourly "))
+            {
+                var city = callbackData.Substring(8);
+                var сoordinates = await _weatherService.GetCoordinatesByCityName(city);
+                var hourlyWeather = await _weatherService.GetHourlyWeatherByCoordinates(сoordinates.Lat, сoordinates.Lon);
+
+                if (hourlyWeather.Hourly == null)
+                {
+                    await botClient.SendTextMessageAsync(
+                            chatId: CallbackChatId,
+                            text: $"No hourly weather for <b>{city}</b>",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
+
+                var text = $"Hourly weather for <b>{city}</b>\n";
+                foreach (var hourly in hourlyWeather.Hourly.Take(12))
+                {
+                    var date = DateTimeOffset.FromUnixTimeSeconds(hourly.Dt);
+                    text += "-----------------------------------\n" +
+                            $"<b>{date.ToString("t")}</b>: " +
+                            $"<b>{hourly.Weather[0].Description}</b> \n" +
+                            $"Temperature: <b>{Math.Round(hourly.Temp, 0)}</b>°C\n" +
+                            $"Cloudy: <b>{hourly.Clouds}</b>%, UV: <b>{hourly.Uvi}</b>\n" +
+                            $"Wind : <b>{Math.Round(hourly.WindSpeed, 1)}</b> m/s, <b>{_weatherService.GetWindDirection(hourly.WindDeg)}</b>\n";
+                }
+                await botClient.SendTextMessageAsync(
+                        chatId: CallbackChatId,
+                        text: text,
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                return;
+            }
+
+            if (callbackData.StartsWith("/addcity "))
+            {
+                // check the number of saved cities
+                var cities = await _weatherService.GetListOfCities(CallbackChatId);
+
+                if (cities.Count > 4)
+                {
+                    await botClient.SendTextMessageAsync(
+                            chatId: CallbackChatId,
+                            text: "You can save up to 5 cities.",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
+
+                // add city to the list of saved cities
+                var city = callbackData.Substring(9);
+                var сoordinates = await _weatherService.GetCoordinatesByCityName(city);
+
+                if (cities.Any(x => x.Name == сoordinates.Name))
+                {
+                    await botClient.SendTextMessageAsync(
+                        chatId: CallbackChatId,
+                        text: $"City <b>{city}</b> is already saved",
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                    return;
+                }
+                else
+                {
+                    var addCity = сoordinates;
+                    addCity.UserId = CallbackChatId;
+
+                    await _weatherDbService.SaveCityToDb(addCity);
+
+                    await botClient.SendTextMessageAsync(
+                            chatId: CallbackChatId,
+                            text: $"City <b>{city}</b> has been added",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    return;
+                }
+            }
+
+            // Delete city from the saved list
+            if (callbackData.StartsWith("/delete "))
+            {
+                var city = callbackData.Substring(8);
+                var cityToDeleteFromDb = await _weatherService.GetListOfCities(CallbackChatId);
+
+                await _weatherDbService.DeleteCityFromDb(city, CallbackChatId);
+                await botClient.SendTextMessageAsync(
+                        chatId: CallbackChatId,
+                        text: $"City <b>{city}</b> has been deleted",
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                return;
+            }
+
+            return;
+        }
+
         // Only process Message updates: https://core.telegram.org/bots/api#message
         if (update.Message is not { } message)
             return;
@@ -61,7 +204,7 @@ public class TelegramService : ITelegramService
             var locationCity = await _weatherService.GetCityNameByCoordinates(location.Latitude, location.Longitude);
 
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"{DateTime.Now}: Nearest city is '{locationCity.Name}',  Id {update.Message.Chat.Id}.");
+            Console.WriteLine($"{DateTime.Now}: Recive a '{locationCity.Name}' location data,  Id '{update.Message.Chat.Id}'.");
             Console.ResetColor();
 
             var testIconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{locationWeather.Current.Weather[0].Icon}@2x.png");
@@ -81,16 +224,15 @@ public class TelegramService : ITelegramService
                     cancellationToken: cancellationToken);
             return;
         }
-        
-        // Only process text messages
+
+        //Only process text messages
         if (message.Text is not { } messageText)
             return;
 
-        var userId = update.Message.Chat.Id;
         var chatId = message.Chat.Id;
 
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"{DateTime.Now}: Received a '{messageText}' message in chat {userId}.");
+        Console.WriteLine($"{DateTime.Now}: Received a '{messageText}' message in chat {chatId}.");
         Console.ResetColor();
 
 
@@ -101,7 +243,7 @@ public class TelegramService : ITelegramService
             // Generate weather button
             ReplyKeyboardMarkup replyKeyboardMarkup = new(new[]
             {
-               KeyboardButton.WithRequestLocation("Get weather by your Location"),
+                KeyboardButton.WithRequestLocation("Get weather by your Location"),
             })
             {
                 ResizeKeyboard = true
@@ -121,16 +263,17 @@ public class TelegramService : ITelegramService
 
         }
 
+        // Show weather for saved cities
         if (messageText.StartsWith("/weather"))
         {
             // Get all saved cities from the database by user ID
-            var listOfCities = await _weatherService.GetListOfCities(userId);
+            var listOfCities = await _weatherService.GetListOfCities(chatId);
 
             if (listOfCities.Count < 1)
             {
                 await botClient.SendTextMessageAsync(
                         chatId: chatId,
-                        text: $"No cities saved. To add a city use the command: <b>/addcity</b> <i>city</i>",
+                        text: $"No cities saved. To add a city to list please enter the city name and than press ➕",
                         parseMode: ParseMode.Html,
                         cancellationToken: cancellationToken);
                 return;
@@ -143,6 +286,8 @@ public class TelegramService : ITelegramService
                 var iconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{weather.Current.Weather[0].Icon}@2x.png");
                 var windDirection = _weatherService.GetWindDirection(weather.Current.WindDeg);
                 var offsetTime = _weatherService.GetOffsetTime(weather.TimezoneOffset);
+                var dailyButton = $"/daily {city.Name}";
+                var hourlyButton = $"/hourly {city.Name}";
 
                 await botClient.SendPhotoAsync(
                     chatId: chatId,
@@ -156,196 +301,18 @@ public class TelegramService : ITelegramService
                                 $"Humidity: <b>{weather.Current.Humidity}</b>%\n" +
                                 $"Wind : <b>{Math.Round(weather.Current.WindSpeed, 1)}</b> m/s, <b>{windDirection}</b>",
                     parseMode: ParseMode.Html,
-                    cancellationToken: cancellationToken);
+                    replyMarkup: new InlineKeyboardMarkup(new[]
+                    {
+                        new []
+                            {
+                                InlineKeyboardButton.WithCallbackData("Daily", dailyButton),
+                                InlineKeyboardButton.WithCallbackData("Hourly", hourlyButton),
+                                InlineKeyboardButton.WithCallbackData("❌", $"/delete {city.Name}"),
+                            }
+                    }),
+            cancellationToken: cancellationToken);
             }
             return;
-        }
-
-        if (messageText.StartsWith("/daily"))
-        {
-            var city = messageText.Substring(6).Replace("_", " ");
-            //var city = cityWithoutSpaces.Replace("_", " ");
-
-            if (string.IsNullOrEmpty(city))
-            {
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: "To get daily weather use the command: <b>/daily</b> <i>city</i>",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
-            }
-
-            var coordinate = await _weatherService.GetCoordinatesByCityName(city);
-            var weather = await _weatherService.GetWeatherByCoordinates(coordinate.Lat, coordinate.Lon);
-            var windDirection = _weatherService.GetWindDirection(weather.Current.WindDeg);
-            var iconUrl = InputFile.FromUri($"https://openweathermap.org/img/wn/{weather.Current.Weather[0].Icon}@2x.png");
-            var offsetTime = _weatherService.GetOffsetTime(weather.TimezoneOffset);
-
-            await botClient.SendPhotoAsync(
-                    chatId: chatId,
-                    photo: iconUrl,
-                    caption: $"City: <a href =\"https://www.google.com/search?q={coordinate.Name}\">{coordinate.Name}</a>, <b>{coordinate.Country}</b>, " +
-                                $"<b>{offsetTime.ToString("t")}</b>\n" +
-                                $"Temperature: <b>{weather.Current.Temp}</b>°C\n" +
-                                $"Feels like: <b>{weather.Current.FeelsLike}</b>°C\n" +
-                                $"UV index: <b>{weather.Current.Uvi}</b>\n" +
-                                $"Cloudy: <b>{weather.Current.Clouds}</b>%, {weather.Current.Weather[0].Description}\n" +
-                                $"Humidity: <b>{weather.Current.Humidity}</b>%\n" +
-                                $"Wind : <b>{Math.Round(weather.Current.WindSpeed, 1)}</b> m/s, <b>{windDirection}</b>",
-                    parseMode: ParseMode.Html,
-                    cancellationToken: cancellationToken);
-
-            return;
-        }
-        if (messageText.StartsWith("/addcity"))
-        {
-            // check the number of saved cities
-            var cities = await _weatherService.GetListOfCities(userId);
-
-            if (cities.Count > 4)
-            { 
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: "You can save up to 5 cities. To check the list of saved cities use the command: <b>/list</b>",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
-            }
-
-            // add city to the list of saved cities
-            var city = messageText.Substring(8);
-
-            if (string.IsNullOrEmpty(city))
-            {
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: "To add a city use the command: <b>/addcity</b> <i>city</i>",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
-            }
-            else
-            {
-                var cityWithCoordinates = await _weatherService.GetCoordinatesByCityName(city);
-
-                if (cityWithCoordinates == null)
-                {
-                    await botClient.SendTextMessageAsync(
-                            chatId: chatId,
-                            text: $"City <b>{city}</b> is not found",
-                            parseMode: ParseMode.Html,
-                            cancellationToken: cancellationToken);
-                    return;
-                }
-                else if (cities.Any(x => x.Name == cityWithCoordinates.Name))
-                {
-                    await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: $"City <b>{city}</b> is already saved",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                    return;
-                }
-                else
-                {
-                    var addCity = cityWithCoordinates;
-                    addCity.UserId = userId;
-
-                    await _weatherDbService.SaveCityToDb(addCity);
-
-                    await botClient.SendTextMessageAsync(
-                            chatId: chatId,
-                            text: $"City <b>{city}</b> has been added",
-                            parseMode: ParseMode.Html,
-                            cancellationToken: cancellationToken);
-                    return;
-                }
-            }
-        }
-
-        if (messageText.StartsWith("/list"))
-        {
-            // Show the list of saved cities
-            var listOfCities = await _weatherService.GetListOfCities(userId);
-            if (listOfCities.Count < 1)
-            {
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: $"No cities saved. To add a city use the command: <b>/addcity</b> <i>city</i>",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
-            }
-
-            var text = "";
-            foreach (var city in listOfCities)
-            {
-                string cityWithoutSpaces = city.Name.Replace(" ", "_");
-
-                text += $"/delete_{cityWithoutSpaces}\n";
-            }
-            text += "/clearlist - clear the list of saved cities";
-
-                await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: text,
-                    parseMode: ParseMode.Html,
-                    cancellationToken: cancellationToken);
-                return;
-        }
-
-        if (messageText.StartsWith("/clearlist"))
-        {
-            // Clear the list of saved cities
-            await _weatherDbService.ClearCities(userId);
-            await botClient.SendTextMessageAsync(
-                    chatId: chatId,
-                    text: "The list of saved cities has been cleared.",
-                    cancellationToken: cancellationToken);
-            return;
-        }
-
-
-        // Delete city from the saved list
-        if (messageText.StartsWith("/delete"))
-        {
-            var cityWithoutSpaces = messageText.Substring(7);
-            var city = cityWithoutSpaces.Replace("_", " ");
-            var cityToDeleteFromDb = await _weatherService.GetListOfCities(userId);
-
-            if (string.IsNullOrEmpty(city))
-            {
-                await botClient.SendTextMessageAsync(
-                        chatId: chatId,
-                        text: "To delete a city from list use the command: <b>/delete</b> <i>city</i>",
-                        parseMode: ParseMode.Html,
-                        cancellationToken: cancellationToken);
-                return;
-            }
-            else
-            {
-                city = city.Substring(1);
-                if (cityToDeleteFromDb.Any(x => x.Name == city))
-                {
-                    await _weatherDbService.DeleteCityFromDb(city, userId);
-                    await botClient.SendTextMessageAsync(
-                            chatId: chatId,
-                            text: $"City <b>{city}</b> has been deleted",
-                            parseMode: ParseMode.Html,
-                            cancellationToken: cancellationToken);
-                    return;
-                }
-                else
-                {
-                    await botClient.SendTextMessageAsync(
-                            chatId: chatId,
-                            text: $"City <b>{city}</b> is not saved",
-                            parseMode: ParseMode.Html,
-                            cancellationToken: cancellationToken);
-                    return;
-                }
-            }
         }
 
         // Show weather by entered city name
@@ -378,22 +345,31 @@ public class TelegramService : ITelegramService
                          $"Humidity: <b>{cityWeather.Current.Humidity}</b>%\n" +
                          $"Wind : <b>{Math.Round(cityWeather.Current.WindSpeed, 1)}</b> m/s, <b>{cityWindDirection}</b>",
                 parseMode: ParseMode.Html,
+                replyMarkup: new InlineKeyboardMarkup(new[]
+                    {
+                        new []
+                            {
+                                InlineKeyboardButton.WithCallbackData("Daily", $"/daily {cityCoordinates.Name}"),
+                                InlineKeyboardButton.WithCallbackData("Hourly", $"/hourly {cityCoordinates.Name}"),
+                                InlineKeyboardButton.WithCallbackData("➕", $"/addcity {cityCoordinates.Name}")
+                            }
+                    }),
                 cancellationToken: cancellationToken);
         return;
     }
 
 
-    // Method to handle errors. Outputs error to console if it occurs
-    private async Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
-    {
-        var errorMessage = exception switch
+        // Method to handle errors. Outputs error to console if it occurs
+        private async Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
         {
-            ApiRequestException apiRequestException
-                => $"Telegram API Error:\n[{apiRequestException.ErrorCode}]\n{apiRequestException.Message}",
-            _ => exception.ToString()
-        };
+            var errorMessage = exception switch
+            {
+                ApiRequestException apiRequestException
+                    => $"Telegram API Error:\n[{apiRequestException.ErrorCode}]\n{apiRequestException.Message}",
+                _ => exception.ToString()
+            };
 
-        Console.WriteLine(errorMessage);
+            Console.WriteLine(errorMessage);
 
+        }
     }
-}

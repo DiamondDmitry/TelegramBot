@@ -54,6 +54,9 @@ namespace Tele.Bot.Models
 
         public Current Current { get; set; }
 
+        public List<Daily> Daily { get; set; }
+
+        public List<Hourly> Hourly { get; set; }
     }
 
     public class Weather
