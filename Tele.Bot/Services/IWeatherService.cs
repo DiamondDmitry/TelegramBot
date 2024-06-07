@@ -11,6 +11,7 @@ namespace Tele.Bot.Services
         Task<Root> GetDailyWeatherByCoordinates(double lat, double lon);
         Task<Root> GetHourlyWeatherByCoordinates(double lat, double lon);
         public string GetWindDirection(int deg);
+        public MemoryStream GetWeatherIcon(string imageName);
         Task<List<City>> GetListOfCities(long usedId);
         public DateTimeOffset GetOffsetTime(int timezoneOffset);
 

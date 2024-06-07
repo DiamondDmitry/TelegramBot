@@ -148,6 +148,16 @@ public class TelegramService : ITelegramService
                 var city = callbackData.Substring(9);
                 var сoordinates = await _weatherService.GetCoordinatesByCityName(city);
 
+                if (сoordinates == null)
+                {
+                    await botClient.SendTextMessageAsync(
+                        chatId: CallbackChatId,
+                        text: $"City <b>{city}</b> is not found",
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                    return;
+                }
+
                 if (cities.Any(x => x.Name == сoordinates.Name))
                 {
                     await botClient.SendTextMessageAsync(
@@ -221,6 +231,15 @@ public class TelegramService : ITelegramService
                              $"Humidity: <b>{locationWeather.Current.Humidity}</b>%\n" +
                              $"Wind : <b>{Math.Round(locationWeather.Current.WindSpeed, 1)}</b> m/s, <b>{locationWindDirection}</b>",
                     parseMode: ParseMode.Html,
+                                    replyMarkup: new InlineKeyboardMarkup(new[]
+                    {
+                        new []
+                            {
+                                InlineKeyboardButton.WithCallbackData("Daily", $"/daily {locationCity.Name}"),
+                                InlineKeyboardButton.WithCallbackData("Hourly", $"/hourly {locationCity.Name}"),
+                                InlineKeyboardButton.WithCallbackData("➕", $"/addcity {locationCity.Name}")
+                            }
+                    }),
                     cancellationToken: cancellationToken);
             return;
         }

@@ -1,9 +1,8 @@
-﻿using SQLitePCL;
-using System.Collections.Generic;
-using Tele.Bot.Client;
+﻿using Tele.Bot.Client;
 using Tele.Bot.Models;
-using Telegram.Bot.Types.ReplyMarkups;
-using Telegram.Bot;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Tele.Bot.Services
 {
@@ -67,6 +66,26 @@ namespace Tele.Bot.Services
 
             var currentDirection = (windDeg + 11) / 22;
             return directions[currentDirection];
+        }
+
+        public MemoryStream GetWeatherIcon(string imageName)
+        {
+            using var image = Image.Load<Rgba32>($"https://openweathermap.org/img/wn/{imageName}@2x.png");
+
+            // Изменение размера изображения
+            image.Mutate(x => x.Resize(100, 100)); // Изменение размера на указанные ширину и высоту пикселей
+
+            // Сделать картинку прозрачной
+            //image.Mutate(x => x.MakeTransparent());
+
+            // Сохранение измененного изображения в MemoryStream
+            var outputStream = new MemoryStream();
+            image.SaveAsPng(outputStream);
+
+            // Сброс указателя потока в начало перед возвратом
+            outputStream.Position = 0;
+
+            return outputStream;
         }
 
         public async Task<List<City>> GetListOfCities(long usedId)
